@@ -1,0 +1,144 @@
+name: 🚀 CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Entorno a desplegar'
+        required: true
+        default: 'staging'
+        type: choice
+        options: [staging, production]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_TAG: sha-${{ github.sha }}
+
+jobs:
+  # ─────────────────────────────────────────
+  # STAGING — Automático al push a main
+  # ─────────────────────────────────────────
+  deploy-staging:
+    name: 🟡 Deploy → Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.app-registro.example.com
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configurar kubeconfig (staging)
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
+
+      - name: Crear namespace si no existe
+        run: kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Crear/Actualizar secrets en K8s
+        run: |
+          kubectl create secret generic app-secrets \
+            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --from-literal=JWT_REFRESH_SECRET="${{ secrets.JWT_REFRESH_SECRET }}" \
+            --from-literal=SEGURIDAD_DB_PASS="${{ secrets.DB_PASS }}" \
+            --from-literal=SMTP_PASS="${{ secrets.SMTP_PASS }}" \
+            --namespace=staging \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Aplicar manifests de Kubernetes (staging)
+        run: |
+          kubectl apply -f k8s/configmap.yaml -n staging
+          kubectl apply -f k8s/deployment.yaml -n staging
+          kubectl apply -f k8s/service.yaml -n staging
+          kubectl apply -f k8s/hpa.yaml -n staging
+
+      - name: Rolling update imagen
+        run: |
+          kubectl set image deployment/app-registro \
+            app=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            -n staging
+
+      - name: Verificar rollout exitoso
+        run: kubectl rollout status deployment/app-registro -n staging --timeout=120s
+
+      - name: Smoke test staging
+        run: |
+          sleep 10
+          kubectl run smoke-test --image=curlimages/curl:latest --restart=Never -n staging \
+            --command -- curl -f http://app-registro-svc/api/v1/health
+          kubectl wait --for=condition=complete pod/smoke-test -n staging --timeout=30s
+          kubectl delete pod smoke-test -n staging
+
+  # ─────────────────────────────────────────
+  # PRODUCCIÓN — Requiere aprobación manual
+  # ─────────────────────────────────────────
+  deploy-production:
+    name: 🟢 Deploy → Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment:
+      name: production          # ← Configurar "Required reviewers" en GitHub Settings
+      url: https://app-registro.example.com
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configurar kubeconfig (producción)
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > $HOME/.kube/config
+
+      - name: Crear namespace si no existe
+        run: kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Crear/Actualizar secrets en K8s
+        run: |
+          kubectl create secret generic app-secrets \
+            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --from-literal=JWT_REFRESH_SECRET="${{ secrets.JWT_REFRESH_SECRET }}" \
+            --from-literal=SEGURIDAD_DB_PASS="${{ secrets.DB_PASS }}" \
+            --from-literal=SMTP_PASS="${{ secrets.SMTP_PASS }}" \
+            --namespace=production \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Aplicar manifests de Kubernetes (producción)
+        run: |
+          kubectl apply -f k8s/configmap.yaml -n production
+          kubectl apply -f k8s/deployment.yaml -n production
+          kubectl apply -f k8s/service.yaml -n production
+          kubectl apply -f k8s/hpa.yaml -n production
+          kubectl apply -f k8s/pdb.yaml -n production
+          kubectl apply -f k8s/ingress.yaml -n production
+
+      - name: Rolling update imagen (producción)
+        run: |
+          kubectl set image deployment/app-registro \
+            app=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            -n production
+
+      - name: Verificar rollout exitoso
+        run: kubectl rollout status deployment/app-registro -n production --timeout=180s
+
+      - name: Notificar deploy exitoso
+        if: success()
+        run: echo "✅ Deploy a producción exitoso - SHA ${{ github.sha }}"
+
+      - name: Rollback automático si falla
+        if: failure()
+        run: |
+          echo "❌ Deploy falló, ejecutando rollback..."
+          kubectl rollout undo deployment/app-registro -n production

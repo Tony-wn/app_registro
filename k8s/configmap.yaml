@@ -1,0 +1,62 @@
+---
+# ConfigMap: variables no sensibles
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: production
+data:
+  NODE_ENV: "production"
+  APP_PORT: "3000"
+  BCRYPT_ROUNDS: "12"
+  JWT_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+  APP_URL: "https://app-registro.example.com"
+  ALLOWED_ORIGINS: "https://app-registro.example.com,https://front-pedidos-vue.vercel.app"
+  SMTP_HOST: "smtp.gmail.com"
+  SMTP_PORT: "587"
+  SMTP_SECURE: "false"
+  SEGURIDAD_DB_HOST: "aws-1-us-east-1.pooler.supabase.com"
+  SEGURIDAD_DB_PORT: "5432"
+  SEGURIDAD_DB_NAME: "postgres"
+  SEGURIDAD_DB_USER: "postgres.loawmjuwkzyloqknjchk"
+---
+# PodDisruptionBudget: garantiza disponibilidad durante mantenimiento
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: app-registro-pdb
+  namespace: production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: app-registro
+---
+# Ingress: expone la app al exterior con TLS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-registro-ingress
+  namespace: production
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app-registro.example.com
+      secretName: app-registro-tls
+  rules:
+    - host: app-registro.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-registro-svc
+                port:
+                  number: 80

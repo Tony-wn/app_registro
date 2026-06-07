@@ -1,0 +1,43 @@
+# Dependencias
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+build/
+
+# Entorno — CRÍTICO: nunca committear
+.env
+.env.*
+!.env.example
+
+# Cobertura de tests
+coverage/
+
+# Terraform state (si se trabaja localmente)
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+!terraform/terraform.tfvars.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+.dockerignore
+
+# Kubernetes secrets locales
+k8s/secrets*.yaml
+k8s/*secret*.yaml

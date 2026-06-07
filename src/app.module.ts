@@ -9,6 +9,7 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { QrModule } from './modules/qr/qr.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
+import { HealthModule } from './modules/health/health.module';
 
 import { JwtAuthGuard } from "./modules/auth/guards/jwt-auth.guard";
 import { RolesGuard } from "./modules/auth/guards/roles.guard";
@@ -24,6 +25,7 @@ import { PermissionsGuard } from "./modules/auth/guards/permissions.guard";
     RolesModule,
     QrModule,                                   // 5. QrModule después de DatabaseModule
     MetricsModule,
+    HealthModule,                                 // 6. HealthModule 
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

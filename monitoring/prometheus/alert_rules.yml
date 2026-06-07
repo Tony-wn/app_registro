@@ -1,0 +1,75 @@
+groups:
+  # ─────────────────────────────────────────
+  # SLO: Disponibilidad 99.9%
+  # ─────────────────────────────────────────
+  - name: slo_availability
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.001
+        for: 2m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "Tasa de errores supera el SLO (99.9% disponibilidad)"
+          description: "Error rate: {{ $value | humanizePercentage }} en los últimos 5 minutos"
+          runbook: "https://github.com/DepresslyJuice/app_registro/wiki/runbooks/high-error-rate"
+
+  # ─────────────────────────────────────────
+  # SLI: Latencia
+  # ─────────────────────────────────────────
+  - name: sli_latency
+    rules:
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latencia P95 supera 1 segundo"
+          description: "Ruta {{ $labels.route }}: p95={{ $value }}s"
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 3.0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latencia P99 supera 3 segundos"
+          description: "p99={{ $value }}s — posible degradación severa del servicio"
+
+  # ─────────────────────────────────────────
+  # Infraestructura
+  # ─────────────────────────────────────────
+  - name: infrastructure
+    rules:
+      - alert: PodRestarting
+        expr: increase(kube_pod_container_status_restarts_total{namespace="production"}[15m]) > 2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod reiniciando repetidamente"
+          description: "Pod {{ $labels.pod }} ha reiniciado {{ $value }} veces en 15 minutos"
+
+      - alert: DeploymentReplicasMismatch
+        expr: |
+          kube_deployment_spec_replicas{namespace="production",deployment="app-registro"}
+          != kube_deployment_status_available_replicas{namespace="production",deployment="app-registro"}
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Réplicas disponibles no coinciden con las deseadas"
+          description: "Deseadas: {{ $value }} | Disponibles: {{ $value }}"
